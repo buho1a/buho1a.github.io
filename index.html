@@ -4,7 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <link rel="manifest" href="manifest.json">
-    <title>Alarma PWA</title>
+    <title>Alarma PWA Persistente</title>
     <style>
         body { font-family: -apple-system, system-ui, sans-serif; display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100vh; margin: 0; background: #e9ecef; }
         .card { background: white; padding: 2.5rem; border-radius: 25px; box-shadow: 0 15px 35px rgba(0,0,0,0.1); width: 85%; max-width: 350px; text-align: center; }
@@ -17,10 +17,10 @@
 <body>
 
 <div class="card">
-    <h2>Mi Alarma PWA</h2>
+    <h2>Alarma PWA</h2>
     <input type="time" id="timeInput">
     <button id="mainBtn">Establecer Alarma</button>
-    <p id="status">Pide permiso de notificaciones...</p>
+    <p id="status">Cargando...</p>
 </div>
 
 <audio id="alarmSound" src="https://assets.mixkit.co/active_storage/sfx/2869/2869-preview.mp3" loop></audio>
@@ -32,29 +32,43 @@
     const sound = document.getElementById('alarmSound');
     let alarmInterval;
 
-    // Registrar Service Worker y pedir permiso de notificación
+    // 1. REGISTRO Y CARGA INICIAL
     if ('serviceWorker' in navigator) {
         navigator.serviceWorker.register('sw.js').then(() => {
-            if (Notification.permission !== "granted") {
-                Notification.requestPermission().then(p => {
-                    status.innerText = p === "granted" ? "Notificaciones listas" : "Permiso de notificación denegado";
-                });
+            console.log("Service Worker registrado");
+            
+            // Revisar permisos de notificación
+            if (Notification.permission === "default") {
+                Notification.requestPermission();
+            }
+
+            // RECUPERAR HORA GUARDADA
+            const savedTime = localStorage.getItem('alarma_guardada');
+            if (savedTime) {
+                timeInput.value = savedTime;
+                status.innerText = "Recuperando alarma...";
+                // Pequeño delay para asegurar que el SW esté listo
+                setTimeout(() => programarAlarma(savedTime, false), 1000);
             } else {
-                status.innerText = "Listo para programar";
+                status.innerText = "Sin alarmas activas";
             }
         });
     }
 
     mainBtn.onclick = () => {
         if (mainBtn.innerText.includes("Detener")) {
-            location.reload(); // Forma rápida de resetear todo
+            cancelarAlarma();
             return;
         }
         
         const time = timeInput.value;
         if (!time) return alert("Elige una hora");
 
-        // Calcular milisegundos para el Service Worker
+        localStorage.setItem('alarma_guardada', time); // GUARDAR EN MEMORIA
+        programarAlarma(time, true);
+    };
+
+    function programarAlarma(time, esNuevo) {
         const now = new Date();
         const [h, m] = time.split(':');
         let target = new Date();
@@ -71,28 +85,32 @@
             });
         }
 
-        startMonitoring(time);
-    };
-
-    function startMonitoring(time) {
         status.innerText = `Alarma configurada para las ${time}`;
-        mainBtn.innerText = "Alarma Activada (Detener)";
+        mainBtn.innerText = "Alarma Activada (Tocar para Cancelar)";
         mainBtn.style.background = "#6c757d";
 
-        alarmInterval = setInterval(() => {
-            const now = new Date();
-            const current = now.getHours().toString().padStart(2, '0') + ":" + 
-                          now.getMinutes().toString().padStart(2, '0');
+        if(alarmInterval) clearInterval(alarmInterval);
 
-            if (current === time) {
-                sound.play().catch(() => {
-                    console.log("El audio espera interacción");
-                });
+        alarmInterval = setInterval(() => {
+            const currentNow = new Date();
+            const currentStr = currentNow.getHours().toString().padStart(2, '0') + ":" + 
+                               currentNow.getMinutes().toString().padStart(2, '0');
+
+            if (currentStr === time) {
+                sound.play().catch(e => console.log("Esperando interacción para sonido"));
                 mainBtn.innerText = "Detener Sonido";
                 mainBtn.style.background = "red";
                 clearInterval(alarmInterval);
             }
         }, 1000);
+    }
+
+    function cancelarAlarma() {
+        sound.pause();
+        sound.currentTime = 0;
+        localStorage.removeItem('alarma_guardada'); // BORRAR MEMORIA
+        if(alarmInterval) clearInterval(alarmInterval);
+        location.reload();
     }
 </script>
 </body>
