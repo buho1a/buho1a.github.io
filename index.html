@@ -6,20 +6,21 @@
     <link rel="manifest" href="manifest.json">
     <title>Alarma PWA</title>
     <style>
-        body { font-family: system-ui; display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100vh; margin: 0; background: #f4f7f6; }
-        .card { background: white; padding: 2rem; border-radius: 20px; box-shadow: 0 10px 25px rgba(0,0,0,0.1); width: 80%; max-width: 400px; text-align: center; }
-        input[type="time"] { width: 100%; font-size: 2rem; border: none; background: #eee; border-radius: 10px; margin: 20px 0; text-align: center; }
-        button { width: 100%; padding: 15px; border-radius: 10px; border: none; background: #007bff; color: white; font-weight: bold; cursor: pointer; }
-        #status { margin-top: 15px; color: #666; }
+        body { font-family: -apple-system, system-ui, sans-serif; display: flex; flex-direction: column; align-items: center; justify-content: center; height: 100vh; margin: 0; background: #e9ecef; }
+        .card { background: white; padding: 2.5rem; border-radius: 25px; box-shadow: 0 15px 35px rgba(0,0,0,0.1); width: 85%; max-width: 350px; text-align: center; }
+        input[type="time"] { width: 100%; font-size: 2.5rem; border: 2px solid #ddd; border-radius: 12px; margin: 20px 0; text-align: center; color: #333; }
+        button { width: 100%; padding: 18px; border-radius: 12px; border: none; background: #007bff; color: white; font-weight: bold; font-size: 1.1rem; cursor: pointer; transition: 0.3s; }
+        button:active { transform: scale(0.98); }
+        #status { margin-top: 20px; color: #666; font-size: 0.9rem; }
     </style>
 </head>
 <body>
 
 <div class="card">
-    <h2>Alarma Inteligente</h2>
+    <h2>Mi Alarma PWA</h2>
     <input type="time" id="timeInput">
     <button id="mainBtn">Establecer Alarma</button>
-    <p id="status">No programada</p>
+    <p id="status">Pide permiso de notificaciones...</p>
 </div>
 
 <audio id="alarmSound" src="https://assets.mixkit.co/active_storage/sfx/2869/2869-preview.mp3" loop></audio>
@@ -31,56 +32,67 @@
     const sound = document.getElementById('alarmSound');
     let alarmInterval;
 
-    // 1. Registrar el Service Worker
+    // Registrar Service Worker y pedir permiso de notificación
     if ('serviceWorker' in navigator) {
-        navigator.serviceWorker.register('sw.js');
+        navigator.serviceWorker.register('sw.js').then(() => {
+            if (Notification.permission !== "granted") {
+                Notification.requestPermission().then(p => {
+                    status.innerText = p === "granted" ? "Notificaciones listas" : "Permiso de notificación denegado";
+                });
+            } else {
+                status.innerText = "Listo para programar";
+            }
+        });
     }
 
-    // 2. Recuperar alarma guardada al cargar
-    window.onload = () => {
-        const savedTime = localStorage.getItem('myAlarm');
-        if (savedTime) {
-            timeInput.value = savedTime;
-            setAlarm(savedTime);
-        }
-    };
-
     mainBtn.onclick = () => {
-        if (mainBtn.innerText === "Detener") {
-            stopAlarm();
+        if (mainBtn.innerText.includes("Detener")) {
+            location.reload(); // Forma rápida de resetear todo
             return;
         }
+        
         const time = timeInput.value;
-        if (time) {
-            localStorage.setItem('myAlarm', time);
-            setAlarm(time);
+        if (!time) return alert("Elige una hora");
+
+        // Calcular milisegundos para el Service Worker
+        const now = new Date();
+        const [h, m] = time.split(':');
+        let target = new Date();
+        target.setHours(h, m, 0);
+        
+        if (target < now) target.setDate(target.getDate() + 1);
+        const diff = target.getTime() - now.getTime();
+
+        // Enviar al Service Worker para segundo plano
+        if (navigator.serviceWorker.controller) {
+            navigator.serviceWorker.controller.postMessage({
+                type: 'PROGRAMAR_ALARMA',
+                ms: diff
+            });
         }
+
+        startMonitoring(time);
     };
 
-    function setAlarm(time) {
-        status.innerText = `Alarma activa para las ${time}`;
-        mainBtn.innerText = "Alarma Lista (Toca para cancelar)";
-        
+    function startMonitoring(time) {
+        status.innerText = `Alarma configurada para las ${time}`;
+        mainBtn.innerText = "Alarma Activada (Detener)";
+        mainBtn.style.background = "#6c757d";
+
         alarmInterval = setInterval(() => {
             const now = new Date();
-            const currentTime = now.getHours().toString().padStart(2, '0') + ":" + 
-                              now.getMinutes().toString().padStart(2, '0');
+            const current = now.getHours().toString().padStart(2, '0') + ":" + 
+                          now.getMinutes().toString().padStart(2, '0');
 
-            if (currentTime === time) {
-                sound.play();
-                status.innerText = "¡HORA CUMPLIDA!";
-                mainBtn.innerText = "Detener";
+            if (current === time) {
+                sound.play().catch(() => {
+                    console.log("El audio espera interacción");
+                });
+                mainBtn.innerText = "Detener Sonido";
                 mainBtn.style.background = "red";
                 clearInterval(alarmInterval);
             }
         }, 1000);
-    }
-
-    function stopAlarm() {
-        sound.pause();
-        sound.currentTime = 0;
-        localStorage.removeItem('myAlarm');
-        location.reload();
     }
 </script>
 </body>
